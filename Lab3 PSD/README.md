@@ -21,12 +21,16 @@ El proyecto fue desarrollado y validado en el siguiente entorno:
 
 ## Estructura del Proyecto
 
-* `/src`: Contiene los flujogramas de GNU Radio (`.grc`) y los scripts de Python exportados.
-* `/data`: Archivos de prueba (imágenes y audios) utilizados como fuentes de información real.
-* `/docs`: Contiene el informe técnico detallado en formato PDF, las imágenes extraídas de los sumideros (sinks) y el código fuente en LaTeX.
-
-## Uso y Reproducción
-
-1. Clonar este repositorio:
-   ```bash
-   git clone [https://github.com/FabianChacon3/lab3-comunicaciones2-psd.git](https://github.com/FabianChacon3/lab3-comunicaciones2-psd.git)
+```text
+📦 comunicaciones-II-labs
+├── 📁 Lab3_PSD
+│   ├── 📁 data                   # Fuentes de información real (ej. rana.jpg, sonido.wav)
+│   ├── 📁 docs                   # Informes técnicos y anexos
+│   │   ├── 📁 img                # Capturas de instrumentación (analizadores QT GUI)
+│   │   ├── 📁 tex_source         # Código fuente del informe en LaTeX
+│   │   └── 📄 Informe_Lab3.pdf   # Documento final compilado
+│   └── 📁 src                    # Flujogramas de GNU Radio (.grc) y scripts Python
+├── 📄 .gitignore                 # Exclusión de caché de Python, GNU Radio y LaTeX
+├── 📄 LICENSE                    # Licencia MIT
+└── 📄 README.md                  # Documentación principal
+```
