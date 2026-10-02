@@ -1,0 +1,511 @@
+\documentclass[journal]{IEEEtran}
+
+% =========================================================
+% PAQUETES
+% =========================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{cite}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{float}
+\usepackage{microtype}
+
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\sisetup{locale = US, detect-all}
+
+% Ruta base para imágenes en proyectos de Overleaf
+\graphicspath{{img/}}
+
+\newcommand{\Repositorio}{\url{https://github.com/FabianChacon3/GNURADIO_LABCOM2UIS_2026_E1_G7/tree/main/Lab3\%20PSD}}
+
+% Comando simplificado para inclusión directa de imágenes en Overleaf
+\newcommand{\Evidencia}[3]{%
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\linewidth, keepaspectratio]{#1}
+\caption{#3}
+\label{fig:#2}
+\end{figure}}
+
+\title{Laboratorio 3: Densidad Espectral de Potencia de Señales Aleatorias en GNU Radio\\
+\large Comunicaciones II}
+
+\author{
+\IEEEauthorblockN{Fabián Camilo Chacón Vargas -- Código: 2214192\\
+Javier Sneyder Gómez Suárez -- Código: 2204210\\
+Juan Manuel Santos López -- Código: 2215726}\\
+\IEEEauthorblockA{\textit{Escuela de Ingenierías Eléctrica, Electrónica y de Telecomunicaciones (E3T)}\\
+\textit{Universidad Industrial de Santander (UIS)}, Bucaramanga, Colombia\\
+Programa de Ingeniería Electrónica\\
+Presentado a: Ronald Zamora Musa}
+}
+
+\begin{document}
+\maketitle
+
+% =========================================================
+% DECLARACIÓN
+% =========================================================
+\section*{Declaración de originalidad, responsabilidad y uso de IA}
+Los autores certifican que las configuraciones experimentales, ejecución de los flujogramas, adquisición de evidencias, mediciones y validación de los resultados presentados en este informe corresponden al trabajo realizado por los autores. Las fuentes externas utilizadas para fundamentar el análisis se encuentran citadas y diferenciadas del contenido experimental propio.
+
+\textbf{Uso de Inteligencia Artificial (IA):} se utilizó ChatGPT como herramienta de apoyo para organizar el contexto teórico, localizar literatura académica inicial, revisar ecuaciones, interpretar bloques de GNU Radio y revisar la estructura y redacción del informe. Los autores realizaron las configuraciones, ejecución del laboratorio, adquisición de evidencias, mediciones y decisiones experimentales; las cifras y figuras reportadas provienen de esas ejecuciones. La selección final de resultados, su interpretación y las conclusiones corresponden a los autores.
+
+\begin{abstract}
+Este informe analiza experimentalmente la densidad espectral de potencia (PSD) de señales binarias aleatorias, ruido y fuentes de datos reales mediante GNU Radio. La interpretación se organiza alrededor de una pregunta común: ¿de qué depende la PSD observada? Para responderla, se estudian sucesivamente la fuente de bits, el mapeo unipolar--polar, la conformación temporal mediante el vector $h$, el ruido aditivo y la estimación espectral basada en FFT y promediado. El flujograma utiliza una tasa binaria nominal de \SI{32}{kbit/s}, $N=1024$ puntos de FFT y $Sps=|h|$, de modo que $f_s=R_bSps$. Se comparan $Sps=1,4,8,16$, se analiza ruido mediante su piso espectral, se estudian nueve combinaciones de ruido y factor de escala $k$, y se contrastan las PSD producidas por una imagen JPEG y un archivo WAV. Finalmente se traducen las preguntas de control a modificaciones concretas del flowgraph y del bloque de interpolación FIR. Los valores de muestreo estudiados fueron $32$, $128$, $256$ y $512$ kHz; en las pruebas de señal más ruido el piso observado varió entre $-34.63$ y $-22.24$ dB/Hz.
+\end{abstract}
+
+\begin{IEEEkeywords}
+GNU Radio, densidad espectral de potencia, señales aleatorias, señales binarias, NRZ polar, Wiener--Khinchin, FFT, estimación espectral, ruido blanco, interpolación FIR.
+\end{IEEEkeywords}
+
+% =========================================================
+% 1 CONTEXTO TEÓRICO
+% =========================================================
+\section{Contexto teórico}
+
+La densidad espectral de potencia (PSD) permite describir cómo se distribuye, en función de la frecuencia, la potencia media de un proceso aleatorio. Su interpretación se relaciona con la autocorrelación mediante el teorema de Wiener--Khinchin, de modo que una señal puede estudiarse desde su dependencia estadística temporal y desde su representación espectral. Para un proceso estacionario en sentido amplio, esta relación se expresa como
+\begin{equation}
+S_x(f)=\mathcal{F}\{R_x(\tau)\}
+=\int_{-\infty}^{\infty}R_x(\tau)e^{-j2\pi f\tau}\,d\tau .
+\label{eq:wiener}
+\end{equation}
+Esta conexión es central en la práctica porque dos secuencias construidas con el mismo alfabeto de símbolos pueden producir PSD diferentes cuando cambia su estructura estadística o su correlación temporal \cite{Picinbono2016}. En un contexto de formación con SDR y FPGA, esta relación entre modelo matemático, flujo digital e instrumentación también justifica la estructura experimental del laboratorio \cite{TorresGomez2021}.
+
+Una señal binaria de banda base puede representarse mediante símbolos y un pulso de conformación,
+\begin{equation}
+x(t)=\sum_k a_k p(t-kT_b),
+\label{eq:signal}
+\end{equation}
+donde $a_k$ representa la secuencia de símbolos, $p(t)$ el pulso y $T_b=1/R_b$. Para una señal NRZ polar con símbolos equiprobables $a_k\in\{-A,+A\}$ y un pulso rectangular de duración $T_b$, el espectro del pulso es proporcional a $\operatorname{sinc}(fT_b)$ y, para una secuencia independiente de media nula, la PSD adopta la forma
+\begin{equation}
+S_x(f)=A^2T_b\,\operatorname{sinc}^2(fT_b).
+\label{eq:sinc2}
+\end{equation}
+Así, la forma espectral observada no depende únicamente de los niveles binarios: también depende de la secuencia estadística y de la forma temporal empleada para representar cada símbolo \cite{Rice2016,Bishop1998}.
+
+En el laboratorio, la secuencia binaria se transforma de valores $0/1$ a valores polares mediante
+\begin{equation}
+a[n]=2b[n]-1.
+\label{eq:polar}
+\end{equation}
+Para una fuente equiprobable, esta transformación produce una media aproximadamente nula. Si se conserva la representación unipolar $0/A$, la media deja de ser cero y aparece una contribución discreta en $f=0$. Esta diferencia permite interpretar directamente la comparación entre PSD bipolar y unipolar y relacionarla con el desbalance de datos en señales NRZ \cite{Bishop1998}.
+
+El muestreo y la conformación mediante el filtro FIR introducen otra dependencia fundamental. En el flowgraph de la práctica, $Sps=|h|$ y
+\begin{equation}
+f_s=R_bSps,\qquad \Delta f=\frac{f_s}{N}.
+\label{eq:fs_df}
+\end{equation}
+Aumentar $Sps$ no modifica $R_b$ ni la duración física del símbolo cuando $R_b$ permanece constante; modifica el número de muestras empleadas para representar el símbolo y, por consiguiente, el intervalo de frecuencias representable antes de Nyquist. Por su parte, una estimación espectral basada en bloques finitos de $N$ muestras presenta una resolución de rejilla $\Delta f=f_s/N$, variabilidad estadística y posibles efectos de leakage; el promediado de periodogramas reduce la variabilidad de la estimación a costa de un compromiso entre estabilidad y detalle espectral \cite{Parhi2014,Jwo2021,Pech2023}.
+
+Finalmente, al añadir ruido no correlacionado $n(t)$ a una señal $x(t)$,
+\begin{equation}
+y(t)=x(t)+kn(t),
+\end{equation}
+la PSD esperada es
+\begin{equation}
+S_y(f)=S_x(f)+k^2S_n(f).
+\label{eq:sn}
+\end{equation}
+El resultado explica por qué el efecto del ruido se hace especialmente visible en las regiones espectrales donde la contribución de la señal es pequeña. Para fuentes de datos reales, la misma operación binaria no garantiza la misma PSD: la secuencia obtenida de una imagen o de una señal de audio conserva las propiedades estadísticas de la fuente original, por lo que su autocorrelación y, en consecuencia, su PSD pueden diferir de las obtenidas con una fuente aleatoria. Esta idea será comprobada mediante las evidencias de imagen y audio del laboratorio.
+
+\begin{table*}[t]
+\centering
+\caption{Predicciones verificables que organizan el análisis experimental.}
+\label{tab:predicciones}
+\begin{tabular}{p{0.18\textwidth}p{0.29\textwidth}p{0.38\textwidth}}
+\toprule
+Hipótesis & Variable modificada & Comportamiento esperado\\
+\midrule
+H1 & $Sps=1,4,8,16$ & Cambia $f_s$ de $32$ a $512$ kHz y, por tanto, el intervalo de Nyquist. La representación temporal pasa de 1 a 16 muestras por símbolo, mientras que el primer nulo teórico permanece ligado a $R_b$.\\
+H2 & Fuente de ruido & La PSD del ruido aislado presenta un nivel aproximadamente uniforme en la banda observable, con fluctuaciones propias de una estimación finita.\\
+H3 & $k=0.5,1,1.5$ & El piso espectral asociado al ruido aumenta con la potencia $k^2$; el efecto es más visible donde domina el ruido.\\
+H4 & Imagen vs. audio & Fuentes binarias diferentes producen PSD diferentes aun con el mismo mapeo y pulso, porque cambia la estructura estadística de la secuencia.\\
+H5 & Vector $h$ & Cambiar $h$ modifica directamente la forma temporal de cada símbolo y, por su respuesta en frecuencia, la distribución espectral de la señal resultante.\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+% =========================================================
+% 2 METODOLOGIA Y RESULTADOS
+% =========================================================
+\section{Procedimiento experimental y resultados}
+
+\subsection{Arquitectura del sistema y traducción del flowgraph}
+La cadena de generación de la señal puede interpretarse como un sistema de transmisión en banda base: una fuente de símbolos alimenta un mapeo de amplitud, seguido por una etapa de conformación/interpolación, mientras que una rama de instrumentación permite observar la señal en tiempo y frecuencia. En paralelo, otra rama toma bloques de muestras, calcula una FFT, obtiene $|X[k]|^2$ y realiza un promedio vectorial para construir la estimación de PSD.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\linewidth, height=0.18\textheight, keepaspectratio]{Bloque.png}
+\caption{Traducción del flowgraph a un sistema funcional de telecomunicaciones. La cadena se separa en generación de símbolos, mapeo, conformación/interpolación, instrumentación y estimación espectral.}
+\label{fig:architecture}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Función de los bloques y tasa de muestreo asociada a cada etapa.}
+\label{tab:bloques}
+\begin{tabular}{p{0.28\linewidth}p{0.48\linewidth}p{0.14\linewidth}}
+\toprule
+Bloque & Función & $f_s$\\
+\midrule
+Random Source & Genera la secuencia binaria inicial. & $R_b$\\
+Char to Float & Cambia el tipo numérico sin alterar el número de elementos por segundo. & $R_b$\\
+Add + Multiply Const & Implementan el mapeo $a[n]=2b[n]-1$. & $R_b$\\
+Interpolation FIR Filter & Interpola y conforma el pulso mediante $h$. & $R_bSps$\\
+Throttle & Limita la velocidad de ejecución en software. & $R_bSps$\\
+Noise Source & Genera la realización de ruido seleccionada. & $R_bSps$\\
+Multiply Const ($k$) & Escala la amplitud del ruido o de una rama. & $R_bSps$\\
+Add & Suma señal y ruido en tiempo discreto. & $R_bSps$\\
+File Source & Entrega los datos del archivo a la cadena de procesamiento. & $f_{file}$\\
+Unpack K Bits & Convierte cada palabra de entrada en $K$ bits. & $Kf_{in}$\\
+Virtual Source/Sink & Transportan una rama interna del flowgraph hacia la instrumentación. & Dependiente de la rama\\
+Null Sink & Consume una rama sin modificar la señal observada en otras rutas. & Igual a la entrada\\
+Stream to Vector & Agrupa $N=1024$ muestras para la FFT. & $f_s$\\
+FFT & Obtiene $X[k]$. & $f_s$\\
+Complex to Mag$^2$ & Calcula $|X[k]|^2$. & $f_s$\\
+Multiply Vector & Aplica la normalización del periodograma. & $f_s$\\
+Vector Averager (Python) & Promedia acumulativamente los vectores espectrales. & $f_s$\\
+QT GUI Time/Frequency Sink & Presenta las señales en tiempo y frecuencia. & $f_s$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El bloque personalizado de Python implementado en el repositorio realiza explícitamente el promedio de los vectores recibidos. La operación esencial es
+\begin{verbatim}
+self.sum += np.sum(x, axis=0)
+self.rows_counter += len(x)
+y[:] = self.sum/self.rows_counter
+\end{verbatim}
+lo que corresponde a
+\begin{equation}
+\bar{S}[k]=\frac{1}{M}\sum_{m=1}^{M}S_m[k].
+\label{eq:avg}
+\end{equation}
+Esta descripción se limita al comportamiento real del código suministrado y evita atribuirle un algoritmo de Welch clásico completo. En términos de estimación, el bloque realiza un promedio acumulativo de vectores; si los bloques no se solapan y se emplea una ventana rectangular, su interpretación es equivalente al promedio tipo Bartlett.\cite{Jwo2021}
+
+\subsection{Punto 1. Señal binaria aleatoria bipolar: efecto de $Sps$}
+\textbf{Predicción.} Al aumentar $Sps$ deben aumentar $f_s$ y la separación entre bins $\Delta f$, mientras que $R_b$ permanece constante y el primer nulo ideal continúa asociado a $R_b$.\par
+\textbf{Configuración.} La configuración nominal utiliza $R_b=\SI{32}{kbit\per\second}$ y $N=1024$. Para cada escenario se modifica el vector $h$ de modo que $Sps=|h|$.
+
+\begin{table}[htbp]
+\centering
+\caption{Parámetros calculados para la variación de $Sps$.}
+\label{tab:sps}
+\begin{tabular}{cccc}
+\toprule
+$Sps$ & $h$ & $f_s$ (kHz) & $\Delta f$ (Hz)\\
+\midrule
+1 & $[1]$ & 32 & 31.25\\
+4 & $[1,1,1,1]$ & 128 & 125\\
+8 & $[1]^8$ & 256 & 250\\
+16 & $[1]^{16}$ & 512 & 500\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Evidencia{sps/sps1_gain.jpeg}{sps1_time}{Señal y respuesta instrumental para $Sps=1$, con $f_s=32$ kHz.}
+\Evidencia{sps/sps1_PSD.jpeg}{sps1_psd}{PSD estimada para $Sps=1$; el primer cero teórico en $32$ kHz queda fuera de Nyquist ($16$ kHz).}
+\Evidencia{sps/sps4_gain.jpeg}{sps4_time}{Señal y respuesta instrumental para $Sps=4$, con $f_s=128$ kHz.}
+\Evidencia{sps/sps4_PSD.jpeg}{sps4_psd}{PSD estimada para $Sps=4$, con $\Delta f=125$ Hz/bin.}
+\Evidencia{sps/sps8_gain.jpeg}{sps8_time}{Señal y respuesta instrumental para $Sps=8$, con $f_s=256$ kHz.}
+\Evidencia{sps/sps8_PSD.jpeg}{sps8_psd}{PSD estimada para $Sps=8$, con $\Delta f=250$ Hz/bin.}
+\Evidencia{sps/sps16_gain.jpeg}{sps16_time}{Señal y respuesta instrumental para $Sps=16$, con $f_s=512$ kHz.}
+\Evidencia{sps/sps16_PSD.jpeg}{sps16_psd}{PSD estimada para $Sps=16$, con $\Delta f=500$ Hz/bin.}
+
+\textbf{Resultado.} Los valores calculados de $f_s$ y $\Delta f$ son los registrados en la Tabla~\ref{tab:sps}; las capturas corresponden a las cuatro configuraciones ejecutadas.\par
+\textbf{Análisis.} El comportamiento observado se interpreta principalmente de forma comparativa. Al aumentar $Sps$, aumenta la frecuencia de muestreo de acuerdo con $f_s=R_bSps$ y, por tanto, se modifica el intervalo de frecuencia que puede representar la FFT antes del límite de Nyquist. La evidencia también permite observar cambios en la representación espectral. La apariencia de una mayor concentración de potencia al aumentar $Sps$ corresponde al cambio del eje de frecuencia y del intervalo de Nyquist disponible, no a un cambio físico de $R_b$ ni a una expansión intrínseca del ancho de banda del pulso rectangular.
+
+\subsection{Punto 2. Ruido blanco}
+\textbf{Predicción.} Una fuente de ruido blanco digital debe producir un nivel espectral aproximadamente plano dentro del intervalo observable, con fluctuaciones finitas del estimador.\par
+\textbf{Configuración y resultado.} La guía solicita aislar la rama de ruido mediante los Virtual Source y realizar varias observaciones temporales y espectrales. En esta práctica el resultado se resume mediante el nivel del piso de ruido observado en la PSD y su comportamiento visual.
+
+
+La representación temporal debe mostrar una señal de variación aleatoria sin la estructura rectangular asociada a la secuencia binaria. En frecuencia, el nivel observado se utiliza como referencia para interpretar el experimento de señal más ruido. La planitud perfecta no debe esperarse en una realización finita, debido a la variabilidad estadística del estimador y al número limitado de muestras disponibles.
+
+\subsection{Punto 3. Señal más ruido}
+La señal analizada es
+\begin{equation}
+y(t)=x(t)+kn(t),
+\end{equation}
+con $k\in\{0.5,1,1.5\}$ y tres distribuciones de ruido. Se realizaron nueve configuraciones. La magnitud del efecto se interpreta desde
+\begin{equation}
+S_y(f)=S_x(f)+k^2S_n(f),
+\end{equation}
+por lo que el incremento del piso de ruido debe hacerse visible especialmente en las regiones donde la potencia de la señal original es reducida.
+
+\begin{table}[htbp]
+\centering
+\caption{Registro del piso de ruido para las nueve configuraciones.}
+\label{tab:piso_ruido}
+\begin{tabular}{lccc}
+\toprule
+Ruido & $k=0.5$ & $k=1$ & $k=1.5$\\
+\midrule
+Gaussiano & $-32.96$ & $-28.69$ & $-24.66$\\
+Uniforme & $-34.63$ & $-31.99$ & $-29.00$\\
+Laplaciano & $-30.64$ & $-24.97$ & $-22.24$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Cambio observado del piso respecto a $k=1$ y comparación con la escala $20\log_{10}k$.}
+\label{tab:ruido_error}
+\begin{tabular}{lccccc}
+\toprule
+Ruido & $\Delta_{0.5}$ obs. & pred. & error & $\Delta_{1.5}$ obs. & error\\
+\midrule
+Gaussiano & $-4.27$ & $-6.02$ & $1.75$ & $+4.03$ & $0.51$\\
+Uniforme & $-2.64$ & $-6.02$ & $3.38$ & $+2.99$ & $-0.53$\\
+Laplaciano & $-5.67$ & $-6.02$ & $0.35$ & $+2.73$ & $-0.79$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Evidencia{noise/Gaus_0.5_sps8.jpg}{gauss_time}{Realización temporal del ruido gaussiano para $k=0.5$ y $Sps=8$.}
+\Evidencia{noise/Gaus_0.5_sps8_mag.jpg}{gauss_k05}{Ruido gaussiano con $k=0.5$; piso observado: $-32.96$ dB/Hz.}
+\Evidencia{noise/Gaus_1_sps8_mag.jpg}{gauss_k1}{Ruido gaussiano con $k=1$; piso observado: $-28.69$ dB/Hz.}
+\Evidencia{noise/Gaus_1.5_sps8_mag.jpg}{gauss_k15}{Ruido gaussiano con $k=1.5$; piso observado: $-24.66$ dB/Hz.}
+\Evidencia{noise/Uniform_1_sps8_mag.jpg}{uniform_k1}{Ruido uniforme con $k=1$; piso observado: $-31.99$ dB/Hz.}
+\Evidencia{noise/Lapl_1_sps8_mag.jpg}{laplacian_k1}{Ruido laplaciano con $k=1$; piso observado: $-24.97$ dB/Hz.}
+
+Las nueve ejecuciones deben conservarse en el repositorio. En el cuerpo del informe se muestran figuras representativas para evitar repetir capturas visualmente equivalentes. El resultado experimental principal es que el piso de la PSD aumenta al aumentar $k$. En dB/Hz, el cambio ideal respecto a $k=1$ es $20\log_{10}(k)$; la Tabla~\ref{tab:ruido_error} muestra las diferencias observadas y sus desviaciones respecto a esa referencia. Las diferencias absolutas entre distribuciones dependen además de cómo cada bloque de GNU Radio parametriza la amplitud del ruido. En los datos obtenidos, el ruido uniforme presentó el piso menos negativo entre $k=0.5$ y $1.5$, mientras que el laplaciano alcanzó el nivel más alto para $k=1.5$.
+
+\subsection{Punto 4. Fuente real: imagen}
+Se reemplaza la fuente binaria aleatoria por el archivo \texttt{rana.jpg}, manteniendo la cadena de procesamiento posterior. Las evidencias permiten comparar la PSD de una fuente real con la de la secuencia aleatoria bajo condiciones de muestreo comparables.
+
+\Evidencia{rana/rana16psdgain.jpeg}{image_time}{Respuesta temporal/frecuencial de la fuente de imagen para $Sps=16$.}
+\Evidencia{rana/rana16psd.jpeg}{image_psd}{PSD de la secuencia binaria obtenida a partir de la imagen para $Sps=16$.}
+
+En las pruebas realizadas se observa que la PSD obtenida a partir de la imagen no es idéntica a la de la fuente aleatoria. La comparación se mantiene en $Sps=16$, por lo que la diferencia se atribuye a la secuencia de datos y no a un cambio simultáneo de la frecuencia de muestreo.
+
+\subsection{Punto 5. Fuente real: audio}
+El procedimiento se repite con el archivo \texttt{sonido.wav}. La misma cadena binaria posterior permite separar el efecto de la fuente del efecto introducido por la representación bipolar y el pulso. El formato de entrada es WAV y la lectura se realiza mediante el bloque de archivo del flowgraph; cualquier parámetro específico de cabecera debe tomarse del archivo efectivamente cargado y no suponerse a partir del nombre.
+
+\Evidencia{audio/audio16freq.jpeg}{audio_time}{Respuesta temporal/frecuencial de la fuente de audio para $Sps=16$.}
+\Evidencia{audio/audio16psd.jpeg}{audio_psd}{PSD de la secuencia binaria obtenida a partir del audio para $Sps=16$.}
+
+La PSD del audio presenta una estructura diferente a la de la imagen, aun cuando ambas terminan expresadas mediante bits y pasan por la misma transformación de polaridad y conformación. La diferencia se interpreta mediante la dependencia estadística de las secuencias generadas por cada fuente. Las conclusiones se apoyan en las formas observadas y no en una cuantificación de entropía que no fue calculada experimentalmente.
+
+
+% =========================================================
+% 3 PREGUNTAS DE CONTROL
+% =========================================================
+\subsection{Preguntas de control}
+
+\subsection{a) Papel de la combinación de bloques}
+La combinación de suma y multiplicación constante implementa una transformación afín. Partiendo de $b[n]\in\{0,1\}$,
+\begin{equation}
+a[n]=2(b[n]-0.5)=2b[n]-1,
+\end{equation}
+por lo que $0\mapsto-1$ y $1\mapsto+1$. Su función es convertir la representación unipolar en una representación polar de dos niveles y, para una fuente equiprobable, llevar su media a un valor aproximadamente nulo.
+
+\subsection{b) Papel del Interpolation FIR Filter}
+El bloque cumple dos funciones: interpola la señal y aplica la respuesta impulsional $h$. Si la interpolación es $L$, conceptualmente se insertan $L-1$ ceros entre muestras y posteriormente se convoluciona con $h$:
+\begin{equation}
+y[n]=\sum_k x[k]h[n-kL].
+\end{equation}
+En la práctica, $h$ determina la forma temporal que ocupa cada símbolo después de la interpolación y, por medio de su espectro, condiciona la distribución de potencia en frecuencia.
+
+\subsubsection{b.1) ¿Por qué el parámetro Interpolation vale SPS?}
+Porque el flowgraph utiliza $Sps$ como número de muestras por símbolo y fija $f_s=R_bSps$. Si el factor de interpolación $L$ se hace diferente de $|h|$, deja de existir la correspondencia directa entre la longitud de la plantilla y el número de muestras asignadas al símbolo. Para $L>|h|$ quedan intervalos de muestras en cero entre respuestas sucesivas; para $L<|h|$, respuestas de símbolos adyacentes se superponen.
+
+\subsubsection{b.2) ¿Cómo analizar p3?}
+Se debe tomar la señal antes de la etapa de interpolación, asignarla al Virtual Source correspondiente y cambiar la instrumentación para utilizar la tasa de muestreo de esa etapa. Con la definición del flowgraph, esa tasa es $R_b$ antes de la interpolación.
+
+\subsubsection{b.3) Ancho de banda en p4}
+Para el pulso rectangular NRZ, la primera nulidad de la envolvente aparece en $f=R_b$. Por tanto, usando la convención de ancho de banda desde DC hasta el primer nulo,
+\begin{equation}
+B_{0\rightarrow 1}=R_b.
+\end{equation}
+El espectro realmente representado por el sistema digital se limita, además, al intervalo de Nyquist $[-f_s/2,f_s/2)$.
+
+\subsubsection{b.4) Frecuencia de muestreo en p3}
+De $f_{s,p4}=Sps\,f_{s,p3}$,
+\begin{equation}
+f_{s,p3}=\frac{f_{s,p4}}{Sps}.
+\end{equation}
+
+\subsection{c) ¿Por qué difieren las PSD de audio e imagen?}
+Porque la transformación a bits no elimina la estructura estadística de la fuente. La secuencia obtenida a partir de cada archivo puede tener distinta autocorrelación, por lo que su PSD también difiere. En este laboratorio la diferencia se evidencia directamente al comparar las Figuras~\ref{fig:image_psd} y~\ref{fig:audio_psd}. La conclusión experimental es que compartir el mismo alfabeto binario, la misma polaridad y el mismo pulso no garantiza una PSD idéntica si la fuente genera secuencias estadísticamente diferentes.
+
+\subsection{d) Papel de Throttle}
+\texttt{Throttle} limita la velocidad de ejecución del flujo de procesamiento cuando la tasa no está impuesta por hardware externo. No modifica el valor de las muestras ni la relación matemática de muestreo; controla la velocidad a la que el software procesa la corriente.
+
+\subsection{e) ¿Qué ocurre si los bits permanecen en 0 y 1?}
+La señal unipolar equiprobable tiene media $A/2$ y, por tanto, una componente discreta en $f=0$. Para un pulso rectangular de duración $T_b$, una forma conveniente de expresarla es
+\begin{equation}
+S_u(f)=\frac{A^2T_b}{4}\operatorname{sinc}^2(fT_b)+\frac{A^2}{4}\delta(f).
+\end{equation}
+La diferencia principal respecto a la señal bipolar es, por tanto, la aparición de una línea espectral en DC.
+
+\subsection{f) ¿El ruido blanco tiene ancho de banda infinito en GNU Radio?}
+El modelo ideal continuo puede extenderse infinitamente en frecuencia, pero una implementación digital con frecuencia de muestreo finita sólo representa de forma explícita el intervalo principal de Nyquist. Por ello la PSD observada en GNU Radio tiene un rango finito, además de fluctuaciones propias de la estimación de una realización finita.
+
+\subsection{g) ¿La señal binaria rectangular tiene ancho de banda infinito?}
+La señal rectangular ideal posee una respuesta tipo sinc$^2$ con lóbulos que se prolongan indefinidamente. La señal digital muestreada no puede mostrar toda esa extensión: su espectro es periódico con período $f_s$ y el intervalo principal observable está limitado por Nyquist. Si componentes fuera de banda no son adecuadamente limitadas antes del muestreo, pueden producirse réplicas espectrales y aliasing.
+
+\subsection{h) Número de lóbulos visibles}
+Para la señal rectangular, los ceros del lóbulo ideal aparecen separados aproximadamente $R_b$. Si se define $N_{lob}$ como el número de separaciones de lóbulo que caben en la banda de muestreo,
+\begin{equation}
+N_{lob}=\frac{f_s}{R_b}=Sps.
+\end{equation}
+El conteo visual de lóbulos completos puede diferir en los extremos por la consideración de lóbulos parciales.
+
+\subsection{i) Rango total de frecuencias}
+\begin{equation}
+f\in\left[-\frac{f_s}{2},\frac{f_s}{2}\right)
+=\left[-\frac{R_bSps}{2},\frac{R_bSps}{2}\right).
+\end{equation}
+
+\subsection{j) Resolución espectral del analizador}
+\begin{equation}
+\Delta f=\frac{f_s}{N}.
+\end{equation}
+Para $N=1024$, por ejemplo, $Sps=8$ implica $f_s=256$ kHz y $\Delta f=250$ Hz/bin.
+
+\subsection{k) ¿Qué ocurre si Unpack K Bits se configura con $K=16$?}
+En esta práctica el flujo trabaja con elementos de tipo byte. Por ello, $K=16$ no corresponde al rango usual de bits disponibles en una palabra de ocho bits. No se reporta un mensaje de error textual porque no quedó conservada esa captura; lo que sí puede afirmarse desde la configuración del bloque es que $K=16$ no es compatible con una extracción de 16 bits desde un byte.
+
+\subsection{l) Frecuencia de muestreo a la entrada de Unpack K Bits}
+Si cada elemento de entrada contiene $K$ bits y la salida requerida es una tasa binaria $R_b$,
+\begin{equation}
+f_{in}=\frac{R_b}{K}.
+\end{equation}
+La misma relación puede expresarse mediante $N_{lob}=f_s/B$ con $B=R_b$. Para una entrada formada por palabras de $K$ bits,
+\begin{equation}
+f_{in}=\frac{R_b}{K}=\frac{B}{K}=\frac{f_s}{N_{lob}K}.
+\end{equation}
+
+\subsection{m) Frecuencia de muestreo a la salida de Unpack K Bits}
+Si cada elemento de entrada se expande en $K$ bits,
+\begin{equation}
+f_{out}=Kf_{in}.
+\end{equation}
+
+\subsection{n) Frecuencia de muestreo a la salida de Char to Float}
+\begin{equation}
+f_{out}=f_{in},
+\end{equation}
+porque el bloque cambia la representación numérica y no el número de elementos procesados por segundo.
+
+\subsection{o) ¿Para qué $Sps$ la PSD se asemeja a ruido blanco?}
+Para $Sps=1$ la secuencia bipolar equiprobable e independiente se aproxima a una secuencia de media nula cuya autocorrelación discreta se concentra en el retardo cero. Por Wiener--Khinchin, esa propiedad produce una PSD aproximadamente plana en el intervalo digital observable. El resultado se interpreta como una equivalencia de segundo orden entre una secuencia binaria polar aleatoria y ruido blanco discreto.
+
+\subsection{p) Cambios mínimos para Unipolar RZ y Manchester NRZ}
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Unipolar RZ.} En el bloque de mapeo deben conservarse niveles $0$ y $1$ (o $0$ y $A$), y en el \texttt{Interpolation FIR Filter} se utiliza, para $Sps=8$, una plantilla inicial
+\begin{equation}
+h_{RZ}=[1,1,1,1,0,0,0,0].
+\end{equation}
+Los ceros del segundo semiperíodo producen retorno a cero dentro del intervalo de símbolo.
+\item \textbf{Manchester NRZ.} Se conserva el mapeo polar y se modifica exclusivamente la plantilla del FIR. Para la polaridad correspondiente a la figura de la guía puede emplearse inicialmente
+\begin{equation}
+h_M=[1,1,1,1,-1,-1,-1,-1].
+\end{equation}
+La polaridad se ajusta para coincidir con la transición central de la Fig.~6(f) de la guía \cite{GuiaLab3}.
+\end{enumerate}
+
+\subsection{q) Cambios mínimos para las formas adicionales}
+La intervención principal se realiza sobre el parámetro \texttt{h} del bloque \texttt{Interpolation FIR Filter}; cuando la forma solicitada implica modulación por portadora, la plantilla $h$ puede contener la forma de la portadora y el mapeo de símbolos determina qué amplitud o signo se aplica a cada símbolo.
+
+\begin{table}[htbp]
+\centering
+\caption{Vectores de $h$ utilizados como plantillas de las formas del punto q.}
+\label{tab:q}
+\begin{tabular}{p{0.20\linewidth}p{0.70\linewidth}}
+\toprule
+Forma & Vector de referencia para $Sps=8$ \\
+\midrule
+Diente de sierra & $h=[0,1,2,3,4,5,6,7]/7$ \\
+OOK & $h=[0,0.707,1,0.707,0,-0.707,-1,-0.707]$, un ciclo de portadora por símbolo y mapeo $0/1$. \\
+BPSK & El mismo $h$ sinusoidal, con mapeo polar $-1/+1$ para invertir la fase. \\
+ASK & El mismo $h$ sinusoidal, con dos amplitudes positivas, por ejemplo $A_0=0.5$ y $A_1=1$. \\
+Latido del corazón & $h=[-0.136,0.191,0.637,0.955,0.955,0.637,0.191,-0.136]$, aproximación discreta tipo sinc ajustada a la Fig.~9 de la guía \cite{GuiaLab3}. \\
+Pulso rizado & $h=[0.00,1.00,0.00,-0.70,0.00,0.51,0.00,-0.37]$, plantilla oscilatoria amortiguada ajustada a la Fig.~10 de la guía \cite{GuiaLab3}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{r) Diferencia entre PSD bipolar y unipolar}
+Para una secuencia bipolar equiprobable la media es cero y no aparece una línea espectral en DC. Para una secuencia unipolar equiprobable la media es $A/2$, generando el término discreto $\frac{A^2}{4}\delta(f)$. La comprobación experimental se realiza bajo las mismas condiciones de $R_b$, $Sps$, $N$ e instrumentación. La línea en $f=0$ del caso unipolar constituye la evidencia de la componente de media no nula; en el caso bipolar esa línea ideal no aparece.
+
+% ---------------------------------------------------------
+% Evidencias de p/q
+% ---------------------------------------------------------
+\Evidencia{Unipolar/UnipolarRZ.jpg}{unipolar_rz}{Señal unipolar RZ obtenida con $h=[1,1,1,1,0,0,0,0]$ para $Sps=8$.}
+\Evidencia{Unipolar/UnipolarRZ_freq.jpg}{unipolar_rz_psd}{PSD estimada de la señal unipolar RZ para $Sps=8$.}
+\Evidencia{Manchester/Manchester.png}{manchester}{Señal Manchester obtenida con $h=[1,1,1,1,-1,-1,-1,-1]$ para $Sps=8$.}
+\Evidencia{Manchester/Manchester_freq.png}{manchester_psd}{PSD estimada de la señal Manchester para $Sps=8$.}
+\Evidencia{Diente de sierra/Diente.png}{diente_sierra}{Señal obtenida con la plantilla $h=[0,1,2,3,4,5,6,7]/7$.}
+\Evidencia{ook/ook.jpg}{ook}{Señal OOK obtenida con una plantilla sinusoidal de un ciclo por símbolo y niveles $0/1$.}
+
+% =========================================================
+% CONCLUSIONES
+% =========================================================
+\section{Conclusiones}
+\begin{enumerate}[leftmargin=*]
+\item La PSD observada en GNU Radio depende conjuntamente de la fuente de datos, la representación de los símbolos, la plantilla de pulso y el método de estimación espectral. En la práctica se mantuvo $R_b=32$ kbit/s y se estudiaron $Sps=1,4,8,16$.
+\item Para el flowgraph de la práctica, $Sps=|h|$ y $f_s=R_bSps$. Al aumentar $Sps$ se incrementa la frecuencia de muestreo y el intervalo de frecuencia que puede representar la instrumentación, mientras que la tasa binaria se mantiene constante.
+\item El ruido aditivo incrementa el nivel de la PSD según $k^2$. En las nueve configuraciones estudiadas, los pisos observados estuvieron entre $-34.63$ y $-22.24$ dB/Hz; respecto a $k=1$, el cambio ideal es $-6.02$ dB para $k=0.5$ y $+3.52$ dB para $k=1.5$.
+\item Las fuentes reales de imagen y audio producen secuencias binarias con diferentes estructuras estadísticas y, por tanto, diferentes PSD. El resultado experimental confirma que la estadística de los datos no puede ignorarse al analizar el espectro de una señal digital.
+\item El bloque \texttt{Interpolation FIR Filter} constituye el elemento de conformación de pulsos del sistema. Modificar $h$ permite pasar de un pulso rectangular a formas RZ, Manchester y otras plantillas, alterando simultáneamente la forma temporal y su distribución espectral.
+\item La estimación está limitada por $N=1024$, $\Delta f=f_s/N$ y el promedio finito de vectores. Estas condiciones constituyen una limitación práctica y deben considerarse al comparar niveles espectrales entre configuraciones; en una cadena de comunicaciones real, la elección de $f_s$, $N$ y el método de promediado debe hacerse de forma coherente con la banda de interés y la resolución requerida.
+\end{enumerate}
+
+% =========================================================
+% REPOSITORIO
+% =========================================================
+\section{Repositorio y reproducibilidad}
+El material experimental se encuentra organizado en el repositorio del laboratorio: \Repositorio. Allí se conservan los flujogramas, fuentes, evidencias y el script auxiliar de promediado utilizados durante la práctica.
+
+% =========================================================
+% REFERENCIAS
+% =========================================================
+\begin{thebibliography}{99}
+
+\bibitem{Picinbono2016}
+B. Picinbono, ``Symmetric Binary Random Signals With Given Spectral Properties,'' \textit{IEEE Transactions on Signal Processing}, vol. 64, no. 19, pp. 4952--4959, 2016, doi: 10.1109/TSP.2016.2580537. (IEEE)
+
+\bibitem{Bishop1998}
+D. F. Bishop, S. Million, T. M. Nguyen, and M. K. Simon, ``Power Spectrum of Unbalanced NRZ and Biphase Signals in the Presence of Data Asymmetry,'' \textit{IEEE Transactions on Electromagnetic Compatibility}, vol. 40, no. 1, pp. 55--61, Feb. 1998, doi: 10.1109/15.659520. (IEEE)
+
+\bibitem{Rice2016}
+M. Rice, ``Single-carrier modulation,'' in \textit{Transmission Techniques for Digital Communications}, Academic Press Library in Mobile and Wireless Communications, 2016, ch. 3, pp. 73--119, doi: 10.1016/B978-0-12-398281-0.00003-X. (ScienceDirect)
+
+\bibitem{Parhi2014}
+K. K. Parhi and M. Ayinala, ``Low-Complexity Welch Power Spectral Density Computation,'' \textit{IEEE Transactions on Circuits and Systems I: Regular Papers}, vol. 61, no. 1, pp. 172--182, Jan. 2014, doi: 10.1109/TCSI.2013.2264711. (IEEE)
+
+\bibitem{Jwo2021}
+D.-J. Jwo, W.-Y. Chang, and I.-H. Wu, ``Windowing Techniques, the Welch Method for Improvement of Power Spectrum Estimation,'' \textit{Computers, Materials \& Continua}, vol. 67, no. 3, pp. 3983--4003, Jan. 2021, doi: 10.32604/cmc.2021.014752. (ScienceDirect)
+
+\bibitem{Lan2020}
+H. Lan, P. R. White, N. Li, J. Li, and D. Sun, ``Coherently averaged power spectral estimate for signal detection,'' \textit{Signal Processing}, vol. 169, Art. no. 107414, Apr. 2020, doi: 10.1016/j.sigpro.2019.107414. (ScienceDirect)
+
+\bibitem{Yilmaz2020}
+F. Yilmaz, ``McLeish distribution: Performance of digital communications over additive white McLeish noise (AWMN) channels,'' \textit{IEEE Access}, vol. 8, pp. 19133--19195, 2020, doi: 10.1109/ACCESS.2020.2967742. (IEEE)
+
+\bibitem{TorresGomez2021}
+J. Torres-Gomez, Y. Jerez Naranjo, F. Dressler, and M. J. Fernandez-Getino Garcia, ``Undergraduate curriculum to teach and provide research skills on hardware design for SDR applications in FPGA technology,'' \textit{IEEE Access}, vol. 9, pp. 93967--93975, 2021, doi: 10.1109/ACCESS.2021.3093072. (IEEE)
+
+\bibitem{Pech2023}
+D. Pech and G. Prokop, ``A novel method for dominant oscillation estimation and harmony quantification through spectral leakage suppression,'' \textit{Signal Processing}, vol. 212, Art. no. 109145, 2023, doi: 10.1016/j.sigpro.2023.109145. (ScienceDirect)
+
+\bibitem{GuiaLab3}
+Universidad Industrial de Santander, Escuela de Ingenierías Eléctrica, Electrónica y de Telecomunicaciones, ``Comunicaciones II -- Laboratorio 3. PSD de señales aleatorias (GNU Radio),'' guía de laboratorio, 2026.
+
+\end{thebibliography}
+
+\end{document}
