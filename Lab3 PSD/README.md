@@ -25,7 +25,6 @@ El proyecto fue desarrollado y validado en el siguiente entorno:
 📦 comunicaciones-II-labs
 ├── 📁 Lab3_PSD
 │   ├── 📁 data                   # Fuentes de información real (ej. rana.jpg, sonido.wav)
-│   ├── 📁 docs                   # Informes técnicos y anexos
 │   │   ├── 📁 img                # Capturas de instrumentación (analizadores QT GUI)
 │   │   ├── 📁 tex_source         # Código fuente del informe en LaTeX
 │   │   └── 📄 Informe_Lab3.pdf   # Documento final compilado
